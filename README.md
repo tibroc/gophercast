@@ -15,6 +15,8 @@ surface to run real archives migrated from an existing installation.
 - five operations are implemented — inspect, encode, speech-to-text, snapshot, publish
 - search
 - serve media with enforced ACLs
+- watch migrated and ingested events in the browser through an embedded
+  player, with auto-generated captions from speech-to-text
 - manage events and series through the Opencast admin UI
 - Identity is OIDC plus LTI 1.3.
 
@@ -22,17 +24,16 @@ surface to run real archives migrated from an existing installation.
 - the video editor
 - Studio
 - scheduling and capture-agent support
-- a bundled player
 - the other ~93 workflow operations
 - full external-API parity
 - running workers on Kubernetes
-- sharing workers across instances
-- reclaiming storage space (the collector is built but disabled pending a safety proof).
+- sharing workers across instances.
 
 ## Architecture
 
 An edge reverse proxy fronts one or two core replicas and serves the
-admin UI bundle. The core owns one Postgres database — workflow state,
+static frontend bundles — the admin UI and the Paella player, both
+adopter-staged. The core owns one Postgres database — workflow state,
 search, ACLs, and metadata all live there; there is no separate search
 cluster — and one S3-compatible object store holding media as
 content-addressed, immutable objects. Workers lease tasks from the
@@ -44,9 +45,10 @@ LTI 1.3 launches from registered platforms.
 ```mermaid
 flowchart TB
     Browser[Browser - admin UI] --> Edge
+    Viewer["Browser - watch page (/play)"] --> Edge
     LMS[LMS - LTI 1.3 launch] --> Edge
-    Edge[Edge reverse proxy] --> AdminUI[Admin UI static bundle]
-    Edge --> Core["ocng-core (1–2 replicas)"]
+    Edge[Edge reverse proxy] --> AdminUI[Static bundles - admin UI, Paella player]
+    Edge --> Core["ocng-core (1–2 replicas, incl. watch page, event manifest, media delivery)"]
     Core --> PG[("Postgres - metadata, ACLs, search, workflow state")]
     Core --> S3[("S3 object store - content-addressed media")]
     Core -->|validates tokens against| OIDC[OIDC issuer]
@@ -58,8 +60,8 @@ flowchart TB
 The diagram shows what runs today. Not drawn because not built: the
 Kubernetes Job worker path (the adapter is deferred) and the shared
 cross-instance worker pool (designed) — both are covered, with their
-maturity, under "What is different" below. The storage collector is built but disabled
-and sits outside the running data path.
+maturity, under "What is different" below. The storage collector (opt-in,
+off by default) sits outside the serving data path.
 
 **Tech stack:**
 - Go (single static binaries for core, worker, and the migration tool)
@@ -82,13 +84,16 @@ cd deploy
 # one-time: stage the admin UI bundle (a build artifact of the Opencast
 # admin UI — not tracked in this repo; build or obtain it, then copy)
 mkdir -p admin-ui-bundle && cp -r /path/to/opencast/modules/admin/build/. admin-ui-bundle/
+# optional: stage the Paella player bundle for the watch page — see the
+# license notice and staging steps in deploy/README.md, "Paella bundle"
 mkdir -p data/postgres data/minio
 
 podman compose -f compose.yaml up -d --build
 ```
 
 Open http://localhost:8800/. Details, the full configuration reference,
-and the pilot-gate table (settings you must not enable yet, and why) are
+and the pilot-gate table (what must and must not be set before a real
+deployment, and why) are
 in [deploy/README.md](deploy/README.md) and
 [deploy/CONFIG.md](deploy/CONFIG.md). For VM deployments without compose,
 systemd quadlet units are in [deploy/quadlet/](deploy/quadlet/).
@@ -155,8 +160,23 @@ Measured to about 100k events and 1000 roles; larger scale is untested.
 **🗃️ Content-addressed storage — built and proven.** Every media element is
 stored by content hash in an S3 bucket. Identical bytes are stored once;
 objects are immutable, so replication and backup are straightforward.
-Space reclamation (garbage collection) is built but ships disabled until
-a remaining safety proof exists — the config reference marks it must-not-set.
+Space reclamation (garbage collection) is built and proven safe to
+enable — the mark-sweep collector's grace window covers even an object
+written but not yet referenced, mid-migration, which was the last unproven
+case. It ships off by default: an operator opts in by setting the two GC
+variables with the documented grace sizing (greater than the longest
+put-then-reference gap of any writer, and at least the restore horizon) —
+see [deploy/CONFIG.md](deploy/CONFIG.md).
+
+**▶️ Playback through the embedded Paella player — built and proven for the
+watch path.** Every published event gets a watch page (`/play/{id}`) that
+embeds the Paella player: migrated events — the primary content — play in
+a real browser, and ingested events play with the captions the
+speech-to-text operation generated. It plays what is published
+(progressive MP4 plus VTT captions); it is not an editor or annotation
+surface. The player bundle is adopter-staged like the admin UI — upstream
+declares no license, so it is never redistributed here; the pinned version
+and staging steps are in [deploy/README.md](deploy/README.md).
 
 **🖥️ Runs complete on a single small host — demonstrated on one case.** The
 entire stack, including the dev identity provider, runs on one
