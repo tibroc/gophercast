@@ -93,6 +93,22 @@ in [deploy/README.md](deploy/README.md) and
 [deploy/CONFIG.md](deploy/CONFIG.md). For VM deployments without compose,
 systemd quadlet units are in [deploy/quadlet/](deploy/quadlet/).
 
+## Tests
+
+This repository ships the pure-logic unit tests: `go test ./internal/...`
+runs green on a fresh checkout with no database, no object store, and no
+environment configuration. The integration/e2e suite (real Postgres, real
+S3 backend, assembled-stack scenarios) is not included in this repository.
+
+One operational note on schema migrations: the migration ledger records
+each applied step's byte-hash and refuses a step whose SQL no longer
+matches — applied history is immutable, changes ship as new steps. A
+consequence: running two *different builds* of ocng against ONE shared
+database can trip this check even when both builds are individually
+correct, because the same step id may carry different bytes. Use a fresh
+database per build (the dev compose stack does); never point two divergent
+checkouts at the same schema.
+
 ## Migrate from an existing Opencast
 
 Migration reads your source through its authoritative representations

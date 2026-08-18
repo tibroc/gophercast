@@ -5,10 +5,11 @@
 // classifier existed (red-first): this test defines the invariant, the
 // classifier satisfies it.
 //
-// The Postgres lock-behaviour claims are verified executably by
-// TestGuardedDDLRetries / TestSecondBootTakesNoLockOnServeSet in run_test.go
-// (a held ACCESS SHARE actually blocking / not blocking the mechanism);
-// this file verifies the CLASSIFICATION of statements against those claims.
+// The Postgres lock-behaviour claims (a held ACCESS SHARE actually
+// blocking / not blocking the mechanism) are verified executably against a
+// live server in the integration suite, which is not part of this
+// repository; this file verifies the CLASSIFICATION of statements against
+// those claims.
 package schemastep
 
 import (
