@@ -51,7 +51,11 @@ func NewHandler(pool *pgxpool.Pool, opts ...Option) http.Handler {
 	mux.HandleFunc("GET /admin-ng/series/series.json", adminapi.SeriesList(pool, adminapi.WithAuth(h.authn)))
 	mux.HandleFunc("GET /admin-ng/resources/events/filters.json", h.auth(h.eventFilters))
 	mux.HandleFunc("GET /api/events", h.auth(h.apiEvents))
-	mux.HandleFunc("GET /api/events/{id}", h.auth(h.apiEventByID))
+	// Player increment: get-by-id is the enriched External-API event body
+	// (eventmanifest.go) and — alone among the /api routes (D-047) — admits
+	// anonymous principals, pin-evaluated. The list above keeps the
+	// measured 403.
+	mux.HandleFunc("GET /api/events/{id}", h.apiEventByIDFull)
 	// The External API ACL write. ocng honours the request shape and funnels
 	// it through the ONE ACL model (adminapi/write.go): a deny is stored,
 	// reported and veto-evaluated, always visible on read-back.
@@ -128,23 +132,6 @@ func (h *handler) apiEvents(w http.ResponseWriter, r *http.Request, p search.Pri
 		return
 	}
 	writeJSON(w, apiItems(res))
-}
-
-func (h *handler) apiEventByID(w http.ResponseWriter, r *http.Request, p search.Principal) {
-	res, err := search.Events(r.Context(), h.pool, p, search.Query{
-		Surface: search.APIEvents, ByID: r.PathValue("id"), Limit: 1,
-	})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-	if len(res.Items) == 0 {
-		// ACL-invisible get-by-id is 404, not 403 — measured, and the
-		// better information-hiding semantics.
-		http.NotFound(w, r)
-		return
-	}
-	writeJSON(w, apiItem{res.Items[0].ID, res.Items[0].Title})
 }
 
 func (h *handler) apiSeries(w http.ResponseWriter, r *http.Request, p search.Principal) {

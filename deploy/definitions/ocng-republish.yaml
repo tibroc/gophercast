@@ -1,0 +1,11 @@
+# Republish only: refresh the engage-player pin + reference set from the
+# CURRENT archive state. The pin is stamped at publish time, so an ACL
+# edit takes delivery effect only through a republish. The full
+# ocng-eval-2 pipeline cannot re-run on an already-captioned event —
+# encode's "*/source" would match captions/source too.
+id: ocng-republish
+operations:
+  - operation: publish-configure
+    config:
+      channel-id: engage-player
+      download-source-flavors: "*/preview,captions/*"

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ocng player</title>
+    <link rel="stylesheet" href="/paella/paella-opencast-component.css">
+    <style>
+        html, body { margin: 0; width: 100%; height: 100%; background: #000; }
+        paella-opencast-player { display: block; width: 100%; height: 100%; }
+        #err { color: #ddd; font: 16px system-ui, sans-serif; padding: 2rem; }
+    </style>
+</head>
+<body>
+    <paella-opencast-player id="player"></paella-opencast-player>
+    <script type="module">
+        // Datapass: this page fetches the manifest itself — same-origin,
+        // cookie flows — and hands the JSON to the component.
+        const fail = (msg) => {
+            document.body.innerHTML = `<div id="err">${msg}</div>`;
+        };
+        try {
+            await import('/paella/paella-opencast-component.es.js');
+            // /play/{id}; ?id= also honoured for hand-typed URLs
+            const id = new URLSearchParams(location.search).get('id')
+                ?? location.pathname.split('/').filter(Boolean).pop();
+            const [manifestResp, configResp] = await Promise.all([
+                fetch(`/api/events/${encodeURIComponent(id)}?withacl=true&withpublications=true`,
+                    { credentials: 'same-origin' }),
+                fetch('/paella/config.json', { credentials: 'same-origin' }),
+            ]);
+            if (!manifestResp.ok) {
+                fail(manifestResp.status === 404
+                    ? `Event ${id} was not found, or you are not allowed to watch it.`
+                    : `Loading event ${id} failed: HTTP ${manifestResp.status}`);
+            } else {
+                const episode = await manifestResp.text();
+                const player = document.getElementById('player');
+                if (configResp.ok) {
+                    player.setAttribute('paella-config', await configResp.text());
+                }
+                player.setAttribute('opencast-episode', episode);
+                player.setAttribute('video-id', id);
+            }
+        } catch (e) {
+            fail(`Player failed to start: ${e}. Is the Paella bundle staged? (deploy/README "Paella bundle")`);
+        }
+    </script>
+</body>
+</html>

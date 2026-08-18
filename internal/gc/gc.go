@@ -27,15 +27,27 @@
 //     put-then-reference gap in any writer (ingest staging, worker output,
 //     migration batches — the ADR-006 finding: grace >= restore horizon).
 //
-// ENABLEMENT GATE (recorded 2026-08-18, with the T4 commit): sweeping stays
-// OFF by default (ocng-core enables it only when OCNG_GC_GRACE and
-// OCNG_GC_INTERVAL are both set), and the PRECONDITION for ever enabling it
-// in a deployment is a mid-migration-transient fixture — a test that deletes
-// an object's references in the window between a migration's CAS put and its
-// migration_url_map commit and proves the grace protects it. That case is
-// argued today only by the grace-sizing rule below, not by a fixture; the
-// fixture is written when reclamation is actually wanted, gating the
-// capability it enables.
+// ENABLEMENT GATE (recorded 2026-08-18 with the T4 commit; SATISFIED
+// 2026-08-18): sweeping stays OFF by default (ocng-core enables it only when
+// OCNG_GC_GRACE and OCNG_GC_INTERVAL are both set), and the PRECONDITION for
+// enabling it was a mid-migration-transient fixture. That fixture now exists
+// and passes. What it proved, precisely:
+//
+//   - a put-but-not-yet-referenced object (the window between a migration's
+//     CAS put and its migration_url_map commit) is protected ONLY by this
+//     grace clock — the mark set does not cover it, and a zero-grace sweep
+//     reclaims it in the same pass (the fixture's first counterfactual);
+//   - with a sized grace, the object survives as a candidate, and the
+//     reference commit inside the grace clears its candidacy (resurrection);
+//   - a put-then-reference gap LONGER than the grace is data loss (second
+//     counterfactual) — which is why the sizing rule above is a hard
+//     operating requirement, and why ocng-core rejects a non-positive
+//     OCNG_GC_GRACE at config load.
+//
+// The gate being satisfied means an operator MAY enable sweeping by setting
+// both knobs, sized per the rules above (>= restore horizon, > longest
+// put-then-reference gap). It still ships OFF; enabling is an operator
+// decision, never a default.
 //
 // Known residual window, stated rather than hidden: PutFile's dedup path
 // returns an existing object without touching the candidate ledger, so a

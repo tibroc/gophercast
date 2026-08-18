@@ -25,7 +25,7 @@ is not empty, read this table.
 | `OCNG_LTI_SESSION_SECRET` (when LTI is on) | **SET (≥32 bytes)** | Shared by **all** replicas — login, launch and delivery may hit different processes. Never generated: a per-process secret would mint sessions no other replica accepts. |
 | `OCNG_DEV_AUTH` | **NOT SET** | The dev auth seam (X-Roles principals, Basic ingest credentials). The binary defaults it off; production must never set it (T1, ADR-012). |
 | `OCNG_DEFINITIONS_DIR` | **SET** | Without it (and without rows already in the database) no workflow can start. |
-| `OCNG_GC_GRACE` / `OCNG_GC_INTERVAL` | **NOT SET — gated** | The T4 CAS collector. **Do not set.** Enablement requires the mid-migration-transient fixture (a migration paused between CAS write and reference insert, proving grace covers the longest put-then-reference gap) — **it does not exist yet**. Grace must also be ≥ the deployment's restore horizon (ADR-006). These are listed here so nobody mistakes them for tunables. |
+| `OCNG_GC_GRACE` / `OCNG_GC_INTERVAL` | **NOT SET unless reclamation is wanted — opt-in** | The T4 CAS collector. The enablement gate is **satisfied** (2026-08-18): the mid-migration-transient fixture exists and passes. What it proved: grace measured from first-observed-unreferenced is the **only** protection for an object between a migration's CAS put and its reference commit — a zero or undersized grace is mid-migration data loss (both measured as counterfactuals). Therefore: grace **must** exceed the longest put-then-reference gap of any writer (migration batches, ingest staging, worker output) AND be ≥ the deployment's restore horizon (ADR-006); hours, not seconds. Non-positive values are boot-fatal. Still OFF by default — enabling is an operator decision. See `internal/gc` package doc. |
 
 ## Process supervision is part of the deployment contract
 
@@ -60,7 +60,7 @@ own the restart policy.
 | `OCNG_OIDC_ROLES_CLAIM` | no | `roles` | claim path for the role array; dotted paths descend |
 | `OCNG_LTI_PLATFORMS_FILE` | identity gate | unset | JSON array of LTI 1.3 platform registrations; without it `/lti` is not mounted |
 | `OCNG_LTI_SESSION_SECRET` | with platforms | — | ≥32 bytes, shared across replicas |
-| `OCNG_GC_GRACE` / `OCNG_GC_INTERVAL` | **must not set** | off | the T4 gate (table above). Both-or-nothing; durations (`90s`, `24h`); a bad value is fatal |
+| `OCNG_GC_GRACE` / `OCNG_GC_INTERVAL` | opt-in (gate satisfied — table above) | off | the T4 CAS collector. Both-or-nothing; durations (`24h`, `1h`); a bad or non-positive value is fatal. Grace sizing rules in the table above are hard requirements |
 
 ## Variable reference — ocng-worker
 

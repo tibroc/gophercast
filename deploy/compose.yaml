@@ -183,6 +183,10 @@ services:
       # this into its own image from the frontend repository (ADR-012) — a
       # named successor.
       - ./admin-ui-bundle:/srv/admin-ui:ro,z
+      # the Paella bundle, adopter-staged the same way (D-048: upstream
+      # declares no license — obtain it from upstream under upstream's
+      # terms; README "Paella bundle")
+      - ./paella-bundle:/srv/paella:ro,z
 
   edge:
     image: docker.io/library/caddy:2-alpine

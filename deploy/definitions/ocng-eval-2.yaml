@@ -19,6 +19,15 @@ operations:
       source-flavor: "*/source"
       target-flavor: captions/source
       language: en
+  # Player increment: without this step ingested events are never
+  # published — delivery is authorized on the publication pin (D-044) and
+  # nothing could play. The captions/* pattern is what carries the generated
+  # VTT into engage-player (Paella reads captions from the publication's
+  # media list).
+  - operation: publish-configure
+    config:
+      channel-id: engage-player
+      download-source-flavors: "*/preview,captions/*"
   - operation: snapshot
     config:
       source-flavors: "*/*"

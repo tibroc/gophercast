@@ -15,6 +15,43 @@ podman compose -f compose.yaml up -d --build     # dev target (rootless, SELinux
 Then open **http://localhost:8800/** — the real admin-interface bundle
 rendering data served by `ocng-core` through the Caddy edge.
 
+## Paella bundle (the player; adopter-staged, NEVER redistributed — D-048)
+
+The watch page (`/play/{event-id}`, served by ocng-core) embeds the
+[paella-opencast](https://github.com/polimediaupv/paella-opencast) web
+component via the DATAPASS pattern: the page fetches
+`/api/events/{id}?withpublications=true` itself (same-origin, the session
+cookie flows) and hands the JSON to `<paella-opencast-player>`.
+
+**License notice (D-048, required reading before staging):** the
+paella-opencast repository and its npm packages declare **no license**
+(checked 2026-08-18, v2.0.5 — no LICENSE file, `license` field absent/None;
+the underlying `@asicupv/paella-core` is ECL-2.0). Undeclared means
+all-rights-reserved by default. ocng therefore never ships or tracks these
+files: **you** obtain them from upstream, under upstream's terms, and stage
+them here. If your legal review needs a declared license, ask upstream for
+one before deploying the player.
+
+Staging (pinned version: **@asicupv/paella-opencast-component 2.0.5** —
+newer 2.x may work but is unexercised; re-run the player checks after any
+bump):
+
+```bash
+mkdir -p paella-bundle
+npm pack @asicupv/paella-opencast-component@2.0.5
+tar xzf asicupv-paella-opencast-component-2.0.5.tgz
+cp package/dist/paella-opencast-component.es.js \
+   package/dist/paella-opencast-component.css paella-bundle/
+rm -r package asicupv-paella-opencast-component-2.0.5.tgz
+# a paella config (plugins/layout); the upstream component example's config
+# is a working start:
+curl -sL -o paella-bundle/config.json https://raw.githubusercontent.com/polimediaupv/paella-opencast/main/examples/opencast-component-example/src/paella_config.json
+```
+
+The bundle is bind-mounted at `/srv/paella` on the admin-interface static
+server and reached as `/paella/*` through the edge. Without it, `/play/...`
+renders a plain-text pointer to this section instead of a player.
+
 Proven on: podman 5.8.4 rootless (uid 1000), SELinux **Enforcing**,
 Fedora 44 host. The compose file uses only compose-spec keys; docker
 compose is compatible by construction but was not runnable on the dev box

@@ -7,8 +7,10 @@
 # calls — /info/me.json, /search, /publications, /ingest are served by
 # ocng-core and required in practice; §1's four-prefix list was
 # illustrative, the delta is recorded in the assembly report):
-#   /admin-ng /api /ocng /elements /info /search /publications /ingest → core
-#   everything else → admin-interface
+#   /admin-ng /api /ocng /elements /info /search /publications /ingest
+#   /play → core
+#   everything else → admin-interface (incl. /paella/* — the adopter-staged
+#   Paella bundle, served like the admin-ui bundle; D-048)
 #
 # Legacy identity-assumption headers are STRIPPED here (defence in depth).
 # Core rejects them itself regardless — the security property does not
@@ -25,7 +27,7 @@
 }
 
 :80 {
-	@core path /admin-ng/* /api/* /ocng/* /elements/* /info/* /search/* /publications/* /ingest/*
+	@core path /admin-ng/* /api/* /ocng/* /elements/* /info/* /search/* /publications/* /ingest/* /play/*
 
 	handle @core {
 		# strip every legacy identity-assumption header

@@ -65,6 +65,13 @@ func Handler(pool *pgxpool.Pool, store *cas.Store, opts ...Option) http.Handler 
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /elements/{id}", h.serveElement)
+	// Player increment: the same element under a decorative trailing
+	// filename. Paella derives a caption's FORMAT from the URL's last
+	// dot-segment (paella-opencast EventConversor: url.split('.').pop()),
+	// so a delivery URL must end in a real filename — /elements/{id} alone
+	// can never satisfy that. The segment is cosmetic: identical
+	// authorization, conditionals, ranges, bytes.
+	mux.HandleFunc("GET /elements/{id}/{filename}", h.serveElement)
 	mux.HandleFunc("GET /publications/{mediapackageID}", h.servePublications)
 	return mux
 }

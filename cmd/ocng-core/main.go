@@ -54,10 +54,11 @@
 //	OCNG_LTI_SESSION_SECRET required (>=32 bytes) when platforms are
 //	                        registered; shared across replicas, never
 //	                        generated.
-//	OCNG_GC_GRACE/INTERVAL  the T4 CAS collector — GATED OFF; do not set
-//	                        (deploy/CONFIG.md pilot-gate table carries the
-//	                        precondition). Both-or-nothing; bad durations are
-//	                        fatal.
+//	OCNG_GC_GRACE/INTERVAL  the T4 CAS collector — OFF by default, opt-in.
+//	                        The enablement gate is satisfied (mid-migration-
+//	                        transient fixture, 2026-08-18); sizing rules in
+//	                        deploy/CONFIG.md. Both-or-nothing; bad or
+//	                        non-positive durations are fatal.
 //
 // Operational constants that are deliberately NOT configurable (T5: no new
 // configurability): engine lease 60 s, MaxAttempts 3, orchestrator tick
@@ -71,6 +72,7 @@
 //	/search/, /api/              → searchapi
 //	/admin-ng/resources/         → searchapi (boot-support enumerations)
 //	/admin-ng/, /info/           → adminapi
+//	/play/                       → watchpage (the Paella datapass shell)
 package main
 
 import (
@@ -104,6 +106,7 @@ import (
 	"ocng/internal/searchapi"
 	"ocng/internal/serve"
 	"ocng/internal/serveset"
+	"ocng/internal/watchpage"
 )
 
 // coreConfig is everything run() needs, produced by ONE validation pass
@@ -186,13 +189,24 @@ func loadConfig() (coreConfig, error) {
 		}
 	}
 
-	// T4 GC gate: OFF unless BOTH knobs are set (do not set them —
-	// deploy/CONFIG.md carries the precondition). Durations validate here
-	// so a typo is fatal, not silently half-enabled.
+	// T4 GC gate: OFF unless BOTH knobs are set. The gate's precondition —
+	// the mid-migration-transient fixture — exists and passes, so an
+	// operator MAY enable sweeping; deploy/CONFIG.md carries the sizing
+	// rules. Durations validate here so a typo is fatal, not silently
+	// half-enabled. A non-positive grace is fatal too: the fixture's
+	// counterfactual proves grace is the ONLY thing protecting a
+	// mid-migration put-before-reference object, so grace 0 means every
+	// freshly-put object is reclaimable on the next sweep tick.
 	grace, graceSet := s.Duration("OCNG_GC_GRACE")
 	interval, intervalSet := s.Duration("OCNG_GC_INTERVAL")
 	c.gcGrace, c.gcInterval = grace, interval
 	c.gcEnabled = graceSet && intervalSet
+	if graceSet && grace <= 0 {
+		s.Errf("OCNG_GC_GRACE must be positive (got %v): grace is the only protection for freshly-put, not-yet-referenced CAS objects", grace)
+	}
+	if intervalSet && interval <= 0 {
+		s.Errf("OCNG_GC_INTERVAL must be positive (got %v)", interval)
+	}
 
 	return c, s.Err()
 }
@@ -395,6 +409,9 @@ func run() error {
 	adminH := adminapi.Handler(pool, adminapi.WithAuth(auth), adminapi.WithWrite(store, eng, defs))
 	mux.Handle("/admin-ng/", adminH) // list routes are the 5.6 merged handlers
 	mux.Handle("/info/", adminH)
+	// Player increment: the datapass watch page (the manifest's /play/{id}
+	// publication URL). Static shell — authorization lives on the data.
+	mux.Handle("/play/", watchpage.Handler())
 
 	// LTI 1.3 assertion path (ADR-002 A1): mounted only when platforms are
 	// registered — the registry is the trust boundary, and an empty registry
