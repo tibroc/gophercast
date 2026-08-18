@@ -18,7 +18,7 @@ CAS (the S3 bucket) is also plane-1 but is content-addressed and immutable
 (ADR-008) — outside the schema-migration problem by construction.
 
 **Explicitly out:** `mediapackage`, `mp_metadata`, `series`,
-`mp_element_tag`, `mp_snapshot` (archive/metadata surfaces);
+`mp_element_tag`, `mp_snapshot` (archive and metadata surfaces);
 `search_event`, `search_series` (the engage/admin *listing* surface —
 **plane 3**, ratified 2026-08-17: a search blip during an update is a
 control-plane blip. Escape hatch, revisitable: if a pilot says

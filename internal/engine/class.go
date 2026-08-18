@@ -1,13 +1,11 @@
 // Code-adjacent data, hand-committed: the ADR-011 execution-class table for
-// all 98 workflow operations, generated from the S4 measurement
-// (archive/analysis/contracts/workflow-operations.csv, execution_class
-// column — 33 worker / 61 inline / 4 unclear; the split is verified by
-// TestClassTableCounts). The class is a property of the OPERATION, decided
-// by ADR-011 — adopters' workflow definitions do not choose it.
+// all 98 workflow operations — 33 worker / 61 inline / 4 unclear; the split
+// is verified by TestClassTableCounts. The class is a property of the
+// OPERATION, decided by ADR-011 — adopters' workflow definitions do not
+// choose it.
 //
 // ClassUnclear ops fail loudly at dispatch: each of the four depends on an
-// unmade design decision (CONTRACTS §3.2) and must not silently run in
-// either class.
+// unmade design decision and must not silently run in either class.
 package engine
 
 type ExecClass int

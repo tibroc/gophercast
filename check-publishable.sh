@@ -32,7 +32,11 @@
 #     - "PROVENANCE" (case-sensitive)       — the private PROVENANCE.md files
 #       (the ordinary lowercase English word "provenance" is intentionally
 #       NOT matched)
-#     - "CLAUDE.md", "archive/poc-worker", "for-the-rewrite"
+#     - "CLAUDE.md", "for-the-rewrite"
+#     - any "archive/..." path, and "analysis/<subdir>" paths
+#       (facts/contracts/reports/modules/history) — paths into the private
+#       tree; a public comment must never cite one (one slipped the gate on
+#       the initial import, in internal/engine/class.go — hence these)
 #
 # The vendored admin UI bundle is scanned at MATCH granularity (not line
 # granularity) against the HARD patterns only, so one benign match cannot mask
@@ -53,7 +57,7 @@ HARD_CI='security@opencast\.org|privilege escalation|escalat|deny[- ]that[- ]gra
 HARD_CS='\bU-[0-9]+\b|\bO-[0-9]+\b|\bP-[0-9]+\b|\bCVE\b'
 
 # SOFT tier (our source only; bundle excluded).
-SOFT_CI='oracle|devstack|opencast-analysis|skeleton|harvest|CLAUDE\.md|archive/poc-worker|for-the-rewrite'
+SOFT_CI='oracle|devstack|opencast-analysis|skeleton|harvest|CLAUDE\.md|for-the-rewrite|archive/[a-z]|analysis/(facts|contracts|reports|modules|history)'
 SOFT_CS='\bW[0-9]{1,2}\b|PROVENANCE'
 
 # self-exclusion: this script necessarily contains the patterns it hunts
