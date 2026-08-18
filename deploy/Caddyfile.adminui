@@ -1,0 +1,17 @@
+# admin-interface static server (ADR-012: built assets + a minimal static
+# file server; no state, no config beyond the listen port). The bundle is
+# bind-mounted read-only in the dev compose; the shipping image COPYies it
+# in at build time from the frontend repository (a named successor — the
+# frontend repos build their own images, preserving D-004's boundary).
+{
+	auto_https off
+}
+
+# The bundle is built with base /admin-ui/ (absolute asset paths), so it is
+# mounted at /srv/admin-ui and served under that prefix; / redirects there.
+:80 {
+	redir / /admin-ui/ 302
+	root * /srv
+	try_files {path} /admin-ui/index.html
+	file_server
+}

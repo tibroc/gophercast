@@ -1,0 +1,9 @@
+[
+  {
+    "issuer": "https://saltire.lti.app/platform",
+    "client_id": "ocng-dev",
+    "deployment_ids": ["1"],
+    "jwks_uri": "https://saltire.lti.app/platform/jwks",
+    "auth_endpoint": "https://saltire.lti.app/platform/auth"
+  }
+]

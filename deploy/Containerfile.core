@@ -1,0 +1,15 @@
+# ocng-core image (ADR-009: the only artifact is a container image).
+# Build context: the ocng module root (deploy/compose.yaml sets context: ..).
+FROM docker.io/library/golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 go build -o /ocng-core ./cmd/ocng-core
+
+FROM docker.io/library/alpine:3.20
+RUN apk add --no-cache ca-certificates
+COPY --from=build /ocng-core /usr/local/bin/ocng-core
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/ocng-core"]

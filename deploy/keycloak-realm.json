@@ -1,0 +1,109 @@
+{
+  "realm": "ocng",
+  "enabled": true,
+  "attributes": {
+    "frontendUrl": "http://keycloak:8080"
+  },
+  "roles": {
+    "realm": [
+      {
+        "name": "ROLE_ADMIN"
+      },
+      {
+        "name": "ROLE_ADMIN_UI"
+      },
+      {
+        "name": "ROLE_USER_ADMIN"
+      },
+      {
+        "name": "ROLE_USER"
+      },
+      {
+        "name": "ROLE_COURSE_ALPHA"
+      },
+      {
+        "name": "ROLE_SUDO"
+      }
+    ]
+  },
+  "users": [
+    {
+      "username": "kadmin",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "kadmin-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ROLE_ADMIN",
+        "ROLE_ADMIN_UI",
+        "ROLE_USER_ADMIN",
+        "ROLE_USER"
+      ],
+      "requiredActions": [],
+      "emailVerified": true,
+      "email": "kadmin@ocng.example",
+      "firstName": "Kadmin",
+      "lastName": "Test"
+    },
+    {
+      "username": "alpha",
+      "enabled": true,
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alpha-pass",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [
+        "ROLE_USER",
+        "ROLE_COURSE_ALPHA"
+      ],
+      "requiredActions": [],
+      "emailVerified": true,
+      "email": "alpha@ocng.example",
+      "firstName": "Alpha",
+      "lastName": "Test"
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "ocng-api",
+      "enabled": true,
+      "publicClient": true,
+      "directAccessGrantsEnabled": true,
+      "standardFlowEnabled": true,
+      "redirectUris": [
+        "*"
+      ],
+      "protocolMappers": [
+        {
+          "name": "ocng-roles",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-realm-role-mapper",
+          "config": {
+            "claim.name": "roles",
+            "multivalued": "true",
+            "access.token.claim": "true",
+            "id.token.claim": "true",
+            "userinfo.token.claim": "true"
+          }
+        },
+        {
+          "name": "ocng-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "config": {
+            "included.client.audience": "ocng-api",
+            "access.token.claim": "true",
+            "id.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ]
+}

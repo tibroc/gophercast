@@ -1,0 +1,64 @@
+# The edge (ADR-012): reverse proxy in front of everything. THE ROUTES ARE
+# THE CONTRACT, not this file — each block below is one prefix→service rule,
+# expressible 1:1 as a Kubernetes Ingress path rule (Prefix pathType). No
+# Caddy-specific behaviour is load-bearing.
+#
+# Routes (ASSEMBLY-5.5 §1, plus the core prefixes the admin UI actually
+# calls — /info/me.json, /search, /publications, /ingest are served by
+# ocng-core and required in practice; §1's four-prefix list was
+# illustrative, the delta is recorded in the assembly report):
+#   /admin-ng /api /ocng /elements /info /search /publications /ingest → core
+#   everything else → admin-interface
+#
+# Legacy identity-assumption headers are STRIPPED here (defence in depth).
+# Core rejects them itself regardless — the security property does not
+# depend on this file (ADR-012), and the assembly composition check proves
+# both layers together.
+#
+# DEV AUTH SEAM (ASSEMBLY-5.5 §3 — never production): a request arriving
+# WITHOUT X-Roles is given the admin session stand-in, exactly what the
+# increment-5 tier-2 harness injected (cmd/ocng-uitest injectAdmin). A
+# request that carries X-Roles keeps it (the e2e principal seam). OIDC
+# replaces this whole block in the identity increment.
+{
+	auto_https off
+}
+
+:80 {
+	@core path /admin-ng/* /api/* /ocng/* /elements/* /info/* /search/* /publications/* /ingest/*
+
+	handle @core {
+		# strip every legacy identity-assumption header
+		request_header -X-RUN-AS-USER
+		request_header -X-RUN-WITH-ROLES
+		request_header -X-Opencast-Matterhorn-User
+		request_header -X-Opencast-Matterhorn-Roles
+		request_header -X-Opencast-Matterhorn-Organization
+
+		# dev session stand-in: only when the client sent no X-Roles
+		@noroles not header X-Roles *
+		request_header @noroles X-Roles "ROLE_ADMIN,ROLE_ADMIN_UI,ROLE_USER_ADMIN,ROLE_USER"
+
+		# two core replicas (ADR-009: 1-2 for availability)
+		reverse_proxy ocng-core:8085 ocng-core-b:8085
+	}
+
+	# The LTI assertion path (T5/F-4: the compose shape now registers a
+	# platform, so /lti is mounted). Deliberately OUTSIDE @core: the dev
+	# X-Roles stand-in must never be injected here — launches authenticate
+	# by validated platform JWT, and the minted session cookie is what
+	# carries identity onward. Legacy identity headers are stripped all the same.
+	handle /lti/* {
+		request_header -X-RUN-AS-USER
+		request_header -X-RUN-WITH-ROLES
+		request_header -X-Opencast-Matterhorn-User
+		request_header -X-Opencast-Matterhorn-Roles
+		request_header -X-Opencast-Matterhorn-Organization
+		request_header -X-Roles
+		reverse_proxy ocng-core:8085 ocng-core-b:8085
+	}
+
+	handle {
+		reverse_proxy admin-interface:80
+	}
+}

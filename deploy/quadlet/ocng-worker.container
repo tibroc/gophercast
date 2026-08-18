@@ -1,0 +1,60 @@
+# ocng-worker.container — the VM resident lease-worker unit (T3, ADR-011
+# A7 / D-045). One of these per worker VM, installed by the operator's
+# config management (the Ansible shape adopters already run) at
+# ~/.config/containers/systemd/ (rootless) or /etc/containers/systemd/.
+# podman's quadlet generator turns it into a systemd service:
+#
+#   systemctl --user daemon-reload && systemctl --user start ocng-worker
+#
+# The worker holds NO provisioning credential and creates nothing: it
+# polls for ASSIGNED tasks and claims each through the engine's
+# single-winner transition (over-provision safe — run as many of these
+# units on as many VMs as you like). Core, in turn, holds no credential
+# that can touch this VM: the amendment-6 broker is dissolved (D-046)
+# because nothing here needs the grant it existed to contain.
+#
+# Sizing: OCNG_SLOTS bounds concurrent tasks; OCNG_CAPACITY_* is the
+# spec-arithmetic admission budget (sum of running task specs must fit).
+# Set the capacity to what this VM actually has. Tasks without a stated
+# spec cost OCNG_DEFAULT_CPU_MILLIS (1000 = one core) each.
+#
+# Per-task cgroup HARD caps (OCNG_SYSTEMD_SCOPES=1) require a systemd user
+# manager reachable from the worker process — i.e. the bare-process
+# deployment (run the ocng-worker binary as a plain user service), not
+# this containerised unit. In the quadlet shape, bound the worker as a
+# whole with unit-level limits below instead; admission arithmetic inside
+# the worker is unaffected either way.
+
+[Unit]
+Description=ocng resident lease-worker (claim mode, subprocess fan-out)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=localhost/ocng-worker:baked
+# Secrets are podman secrets, never Environment= plaintext (ADR-009:
+# "secret-injected database URL"; T5 closed F-3). Create once on the host:
+#   printf 'postgres://ocng:REAL@db.example.org:5432/ocng' | podman secret create ocng-db-url -
+#   printf 'CAS-SECRET' | podman secret create ocng-cas-secret -
+Secret=ocng-db-url,type=env,target=OCNG_DB_URL
+Secret=ocng-cas-secret,type=env,target=OCNG_CAS_SECRET
+Environment=OCNG_CAS_ENDPOINT=s3.example.org:9000
+Environment=OCNG_CAS_KEY=CHANGE_ME
+Environment=OCNG_CAS_BUCKET=ocng-cas
+Environment=OCNG_TOOLS_DIR=/opt/ocng/tools
+Environment=OCNG_SCRATCH=/scratch
+Environment=OCNG_SLOTS=2
+Environment=OCNG_CAPACITY_CPU_MILLIS=4000
+Environment=OCNG_CAPACITY_MEMORY_MB=8192
+Environment=OCNG_DEFAULT_CPU_MILLIS=1000
+Volume=ocng-worker-scratch:/scratch
+
+[Service]
+Restart=always
+# whole-worker resource bound (the quadlet-shape alternative to per-task
+# scopes; see header)
+#CPUQuota=400%
+#MemoryMax=8G
+
+[Install]
+WantedBy=default.target

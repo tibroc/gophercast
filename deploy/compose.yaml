@@ -1,0 +1,199 @@
+# ocng single-node evaluation stack (ASSEMBLY-5.5, ADR-009's compose
+# topology). One `up`, one URL: http://localhost:8800/
+#
+#   podman compose -f deploy/compose.yaml up -d --build     (dev target)
+#   docker compose -f deploy/compose.yaml up -d --build     (small prod)
+#
+# Written for podman ROOTLESS with SELinux ENFORCING from the start
+# (ASSEMBLY-5.5 §1.1): every bind mount carries :z (shared) or :Z
+# (private) — do not remove the flags, the failure without them is a
+# misleading Permission denied. No podman-only keys are used, so the file
+# stands under docker compose as well.
+#
+# Two core replicas boot concurrently ON PURPOSE: their migrations race by
+# design and are serialised by the engine's Postgres advisory lock
+# (ADR-009 names this a supported deployment scenario; §4 names it the
+# likeliest composition bug — so the compose file exercises it at every
+# `up`).
+#
+# PostgreSQL and MinIO are the operator's estate stand-ins (ADR-009:
+# container-only means the artifact, not the estate). MinIO is a dev
+# stand-in for a production-managed S3 service — the storage contract is
+# the S3 API, never MinIO behaviour.
+#
+# Why there is no `isolate=true` here (ADR-009 requires it in shipped
+# definitions): this file defines NO custom networks — it is the
+# single-network, single-host dev shape, where every service is meant to
+# reach every other. Network isolation applies where deployments segment
+# containers onto separate podman networks (podman networks are NOT
+# isolated by default); the quadlet units carry that requirement.
+
+services:
+  postgres:
+    image: docker.io/library/postgres:16
+    environment:
+      POSTGRES_USER: ocng
+      POSTGRES_PASSWORD: ocng
+      POSTGRES_DB: ocng
+    volumes:
+      - ./data/postgres:/var/lib/postgresql/data:Z
+    ports:
+      # loopback-only DEV port: the e2e edge-composition harness loads its
+      # test corpus through the write APIs from the host. Not part of the
+      # deployment contract.
+      - "127.0.0.1:15433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ocng -d ocng"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ocng
+      MINIO_ROOT_PASSWORD: ocng-secret
+    ports:
+      # loopback-only DEV port (see postgres note)
+      - "127.0.0.1:19001:9000"
+    volumes:
+      - ./data/minio:/data:Z
+
+  # The operated IdP, preconfigured (ADR-002: "ship a preconfigured Keycloak
+  # in the single-node compose bundle so evaluation is still one command").
+  # frontendUrl pins the issuer to http://keycloak:8080 so tokens minted via
+  # the host port validate inside the network.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    volumes:
+      - ./keycloak-realm.json:/opt/keycloak/data/import/ocng-realm.json:ro,z
+    ports:
+      # loopback-only DEV port (see postgres note)
+      - "127.0.0.1:8880:8080"
+
+  ocng-core:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.core
+    image: localhost/ocng-core:assembly
+    environment: &core-env
+      OCNG_DB_URL: postgres://ocng:ocng@postgres:5432/ocng
+      OCNG_CAS_ENDPOINT: minio:9000
+      OCNG_CAS_KEY: ocng
+      OCNG_CAS_SECRET: ocng-secret
+      OCNG_CAS_BUCKET: ocng-cas
+      OCNG_LISTEN: ":8085"
+      # T2: the serve handler's dedicated least-privilege pool (SELECT on
+      # exactly the serve-read set; internal/serveset/READSET.md). The role
+      # is created by the first core boot (EnsureRole) with the password
+      # below — dev-grade credentials, same posture as the rest of this file.
+      OCNG_SERVE_DB_URL: postgres://ocng_serve:ocng_serve@postgres:5432/ocng
+      OCNG_SERVE_DB_PASSWORD: ocng_serve
+      # T5: the ADR-009 authoring surface — a directory of YAML workflow
+      # definitions. Edit files under deploy/definitions/ while the stack
+      # runs; core polls the mount and loads changes into the database with
+      # a content hash (the DB is what executes, so both replicas converge).
+      OCNG_DEFINITIONS_DIR: /etc/ocng/definitions
+      # DEV SHAPE ONLY: the binary's default is seam OFF (T1 step 1,
+      # ADR-012). The production shape must not set this.
+      OCNG_DEV_AUTH: "1"
+      # The operated OIDC issuer (ADR-002; T1 step 4). The shipped Keycloak
+      # is the reference deployment ADR-002 promised for the compose bundle.
+      OCNG_OIDC_ISSUER: http://keycloak:8080/realms/ocng
+      OCNG_OIDC_CLIENT_ID: ocng-api
+      # DEV LTI SHAPE (T5, F-4): registers the saLTIre reference platform so
+      # the compose stack mounts /lti — without a platforms file the
+      # assertion surface does not exist at all. The session secret below is
+      # DEV-GRADE AND PUBLIC (it is in this repository); production creates
+      # its own >=32-byte secret and shares it across replicas
+      # (deploy/CONFIG.md pilot-gate table).
+      OCNG_LTI_PLATFORMS_FILE: /etc/ocng/lti-platforms.json
+      OCNG_LTI_SESSION_SECRET: dev-grade-compose-secret-not-for-production-0000
+    volumes:
+      - ./definitions:/etc/ocng/definitions:ro,z
+      - ./lti-platforms.dev.json:/etc/ocng/lti-platforms.json:ro,z
+    depends_on:
+      - postgres
+      - minio
+    restart: on-failure
+
+  # the second replica (ADR-009: 1-2). Same image, same config; its startup
+  # migration races ocng-core's and must serialise on the advisory lock.
+  ocng-core-b:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.core
+    image: localhost/ocng-core:assembly
+    environment: *core-env
+    volumes:
+      - ./definitions:/etc/ocng/definitions:ro,z
+      - ./lti-platforms.dev.json:/etc/ocng/lti-platforms.json:ro,z
+    depends_on:
+      - postgres
+      - minio
+    restart: on-failure
+
+  ocng-worker:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile.worker
+    image: localhost/ocng-worker:assembly
+    environment:
+      OCNG_DB_URL: postgres://ocng:ocng@postgres:5432/ocng
+      OCNG_CAS_ENDPOINT: minio:9000
+      OCNG_CAS_KEY: ocng
+      OCNG_CAS_SECRET: ocng-secret
+      OCNG_CAS_BUCKET: ocng-cas
+      OCNG_TOOLS_DIR: /opt/ocng/tools
+      OCNG_SCRATCH: /scratch
+      # T3: the resident worker's fan-out — two concurrent task slots so
+      # the standing stack exercises concurrency; admission arithmetic is
+      # otherwise unconstrained here (dev shape; the quadlet sets real
+      # capacity). systemd scopes stay OFF in a container (no user manager).
+      OCNG_SLOTS: "2"
+    volumes:
+      # the PINNED toolchain (hash-asserted at startup; see
+      # Containerfile.worker for why it is mounted, not baked, in dev).
+      # TODO(publish): provide worker tool binaries (ffmpeg/whisper) via a
+      # public build stage — this directory is not shipped in the repo.
+      - ../build/worker-tools:/opt/ocng/tools:ro,z
+      # scratch is a NAMED volume, not a bind mount: under rootless podman a
+      # host-owned bind mount is unwritable by the container's non-root UID
+      # even with :Z (an ownership issue, not SELinux); the named volume
+      # inherits the image's 1777 /scratch on first use, under both podman
+      # and docker.
+      - scratch:/scratch
+    depends_on:
+      - postgres
+      - minio
+    restart: on-failure
+
+  admin-interface:
+    image: docker.io/library/caddy:2-alpine
+    volumes:
+      - ./Caddyfile.adminui:/etc/caddy/Caddyfile:ro,z
+      # the REAL, unmodified admin-interface bundle (increment 5 tier-2's
+      # reference frontend), STAGED into deploy/ (README) so a :z relabel
+      # only ever touches files under deploy/. The shipping path builds
+      # this into its own image from the frontend repository (ADR-012) — a
+      # named successor.
+      - ./admin-ui-bundle:/srv/admin-ui:ro,z
+
+  edge:
+    image: docker.io/library/caddy:2-alpine
+    volumes:
+      - ./Caddyfile.edge:/etc/caddy/Caddyfile:ro,z
+    ports:
+      - "8800:80"
+    depends_on:
+      - ocng-core
+      - ocng-core-b
+      - admin-interface
+
+volumes:
+  scratch:

@@ -1,0 +1,24 @@
+# The evaluation workflow (the increment-2 pipeline): inspect →
+# preview encode → captions → snapshot. Edit files in this directory while
+# the stack runs — core polls the mount and loads changes into the database
+# with a content hash (ADR-009: bind mount authors, database executes).
+# A file that stops parsing keeps its last-good version serving; the ERROR
+# in the core log names the file. See deploy/CONFIG.md "Workflow definitions".
+id: ocng-eval-2
+operations:
+  - operation: inspect
+    config: {}
+  - operation: encode
+    config:
+      source-flavor: "*/source"
+      target-flavor: "*/preview"
+      target-tags: engage-download,engage-streaming,rss,atom
+      encoding-profile: fast.http
+  - operation: speechtotext
+    config:
+      source-flavor: "*/source"
+      target-flavor: captions/source
+      language: en
+  - operation: snapshot
+    config:
+      source-flavors: "*/*"

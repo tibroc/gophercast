@@ -1,0 +1,31 @@
+# ocng-worker image (ADR-009: capability workers).
+#
+# ⚠ Dev-compose deviation from ADR-009, recorded: the pinned toolchain
+# (ffmpeg, whisper-cli, ggml-base.bin) is BIND-MOUNTED from a local tools
+# directory rather than baked into the image, because those exact bytes are
+# what the byte-level output checks are pinned to (the worker refuses to
+# start on hash drift, so provenance is enforced either way).
+# TODO(publish): provide worker tool binaries (ffmpeg/whisper) via a public
+# build stage — compose.yaml mounts them from ../build/worker-tools, which
+# is not shipped in the repo. The shipping image
+# bakes the tools in — that is the quadlet/K8s packaging path, a named
+# successor. The base is Fedora 44 because whisper-cli is dynamically
+# linked against this host's toolchain (libstdc++, libgomp, glibc 2.4x).
+FROM docker.io/library/golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 go build -o /ocng-worker ./cmd/ocng-worker
+
+FROM registry.fedoraproject.org/fedora-minimal:44
+RUN microdnf install -y libstdc++ libgomp && microdnf clean all
+COPY --from=build /ocng-worker /usr/local/bin/ocng-worker
+# /scratch backs a named volume (compose.yaml). Created here, mode 1777, so
+# the volume inherits writable permissions for the non-root user on first
+# use — a rootless-podman bind mount is NOT writable by container UID 1000
+# even with :Z (an ownership issue, not SELinux).
+RUN mkdir -m 1777 /scratch
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/ocng-worker"]

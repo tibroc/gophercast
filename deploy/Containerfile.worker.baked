@@ -1,0 +1,36 @@
+# ocng-worker BAKED image — the production packaging shape (ADR-009: the
+# tooling is pinned IN the image; T3 packaging). Identical binary to
+# Containerfile.worker; the difference is that the pinned toolchain
+# (ffmpeg, ffprobe, whisper-cli, ggml-base.bin) is COPY'd in rather than
+# bind-mounted. The worker still hash-asserts the tools at startup and
+# refuses drift, so provenance is enforced either way — baking just makes
+# the image the complete deployable artifact the quadlet expects.
+#
+# Build context is the repo root; build/worker-tools/ holds the pinned
+# binaries. TODO(publish): provide worker tool binaries (ffmpeg/whisper)
+# via a public build stage — that directory is not shipped in the repo.
+# The shipping pipeline supplies its release-pinned toolchain and re-pins
+# the hashes in internal/worker/pins.go — hash and bytes move together,
+# deliberately.
+#
+#   podman build -f deploy/Containerfile.worker.baked -t localhost/ocng-worker:baked .
+FROM docker.io/library/golang:1.26 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+RUN CGO_ENABLED=0 go build -o /ocng-worker ./cmd/ocng-worker
+
+FROM registry.fedoraproject.org/fedora-minimal:44
+RUN microdnf install -y libstdc++ libgomp && microdnf clean all
+COPY --from=build /ocng-worker /usr/local/bin/ocng-worker
+# TODO(publish): provide worker tool binaries (ffmpeg/whisper) via a
+# public build stage
+COPY build/worker-tools/ /opt/ocng/tools/
+ENV OCNG_TOOLS_DIR=/opt/ocng/tools
+# /scratch as in Containerfile.worker (rootless-podman ownership)
+RUN mkdir -m 1777 /scratch
+ENV OCNG_SCRATCH=/scratch
+USER 1000:1000
+ENTRYPOINT ["/usr/local/bin/ocng-worker"]

@@ -1,0 +1,81 @@
+# ocng-core.container — the production core unit (ADR-009's quadlet shape;
+# T5 step 4 closed F-3: the repo shipped a worker quadlet but promised and
+# lacked this one). 1–2 of these per deployment (ADR-009); two cores booting
+# concurrently is a supported scenario — migrations serialise on the shared
+# Postgres advisory lock. Installed by the operator's config management at
+# ~/.config/containers/systemd/ (rootless) or /etc/containers/systemd/,
+# podman >= 5 (the stated floor):
+#
+#   systemctl --user daemon-reload && systemctl --user start ocng-core
+#
+# SECRETS ARE PODMAN SECRETS, NOT Environment= LINES (ADR-009: "secret-
+# injected database URL"). Create them once on the host:
+#
+#   printf 'postgres://ocng:REAL@db.example.org:5432/ocng' | podman secret create ocng-db-url -
+#   printf 'postgres://ocng_serve:REAL2@db.example.org:5432/ocng' | podman secret create ocng-serve-db-url -
+#   printf 'REAL2'      | podman secret create ocng-serve-db-password -
+#   printf 'CAS-SECRET' | podman secret create ocng-cas-secret -
+#   printf '32-OR-MORE-RANDOM-BYTES-SHARED-BY-ALL-REPLICAS' | podman secret create ocng-lti-session-secret -
+#
+# Consult deploy/CONFIG.md — the pilot-gate table FIRST. In particular:
+# OCNG_DEV_AUTH must not appear here, OCNG_SERVE_DB_URL must (without it
+# T2's structural least-privilege enforcement is OFF and the boot report
+# will say so), and OCNG_GC_GRACE/OCNG_GC_INTERVAL must stay UNSET (the T4
+# gate — its enablement precondition does not exist yet).
+#
+# Workflow definitions: the Volume= below bind-mounts the authoring
+# directory (plain YAML files; edit with an editor, manage with Ansible).
+# Core polls it and loads changes into the database with a content hash —
+# the DATABASE is what executes (ADR-009), so all replicas converge and
+# drift between mounts is a queryable condition, not a behaviour change.
+#
+# Networking (ADR-009): on multi-VM deployments core and workers reach
+# Postgres/S3 over the estate's network. Where several containers share a
+# podman network on one host, podman networks are NOT isolated by default —
+# create them with isolate=true.
+
+[Unit]
+Description=ocng core (engine + HTTP surfaces)
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=localhost/ocng-core:latest
+# --- secrets (values never appear in unit files or `systemctl show`) ---
+Secret=ocng-db-url,type=env,target=OCNG_DB_URL
+Secret=ocng-serve-db-url,type=env,target=OCNG_SERVE_DB_URL
+Secret=ocng-serve-db-password,type=env,target=OCNG_SERVE_DB_PASSWORD
+Secret=ocng-cas-secret,type=env,target=OCNG_CAS_SECRET
+# required when LTI platforms are registered (shared by ALL replicas):
+Secret=ocng-lti-session-secret,type=env,target=OCNG_LTI_SESSION_SECRET
+# --- non-secret config ---
+Environment=OCNG_CAS_ENDPOINT=s3.example.org:9000
+Environment=OCNG_CAS_KEY=CHANGE_ME
+Environment=OCNG_CAS_BUCKET=ocng-cas
+Environment=OCNG_LISTEN=:8085
+Environment=OCNG_DEFINITIONS_DIR=/etc/ocng/definitions
+# identity path (deploy/CONFIG.md: without OIDC or LTI, nobody can log in)
+Environment=OCNG_OIDC_ISSUER=https://idp.example.org/realms/ocng
+Environment=OCNG_OIDC_CLIENT_ID=ocng-api
+Environment=OCNG_LTI_PLATFORMS_FILE=/etc/ocng/lti-platforms.json
+# --- mounts ---
+Volume=/etc/ocng/definitions:/etc/ocng/definitions:ro,z
+Volume=/etc/ocng/lti-platforms.json:/etc/ocng/lti-platforms.json:ro,z
+PublishPort=8085:8085
+# health-gated: the binary listens only after migrations complete, so this
+# doubles as the migration-finished signal (busybox wget is in the image)
+HealthCmd=wget -qO- http://127.0.0.1:8085/ocng/version
+HealthInterval=5s
+HealthRetries=6
+HealthStartPeriod=30s
+Notify=healthy
+
+[Service]
+# ADR-009 Consequences (verbatim requirement): "All three supervision styles
+# must restart the engine, and the operator documentation must say so."
+# The engine exits on loss of database connectivity by design (crash-only);
+# THIS line is what turns that into "resumes without operator intervention".
+Restart=always
+
+[Install]
+WantedBy=default.target
